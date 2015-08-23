@@ -3,29 +3,31 @@
 #include<string.h>
 #include<wire.h>
 
+// ProtoThread.
 #define PT_DELAY(pt, ms, ts) \
   ts = millis(); \
   PT_WAIT_WHILE(pt, millis()-ts < (ms));
 
-#define G_sensor A0
-#define IR_sensor A1 
-#define trigPin 12
-#define echoPin 11
-#define Buzzer 8
-#define LED_B 4
-#define LED_G 2
-#define TEMP A2
-#define MIC A3
-#define Motor1L 3
-#define Motor1R 5
-#define Motor2L 6
-#define Motor2R 9
 
-Servo neck;
-int Gval, IRval, Ultraval, temps, mic;
-int example_value_input = 0;
-String Serialval;
-char Sensorval[50];
+// GPIO Pins Definition.
+#define G_SENSOR A0
+#define IR_SENSOR A1
+#define TEMP_SENSOR A2
+#define SOUND_SENSOR A3
+#define LED_G 2
+#define MOTOR1_RV 3
+#define LED_B 4
+#define MOTOR1_FW 5
+#define MOTOR2_RV 6
+#define BUZZER 8
+#define MOTOR2_FW 9
+#define SERVO 10
+#define ULTRA_ECHO 11
+#define ULTRA_TRIG 12
+
+Servo head;
+int gasValue, irValue, tempValue, micValue;
+String receivedSerial;
 char MV[2];
 char TN[2];
 char HD[2];
@@ -51,9 +53,9 @@ PT_THREAD(taskSendSerial(struct pt* pt)) {
 }
 
 void sendSerial() {
-    String fromboard = "EnviBotREPT_GAS[" + String(Gval) + "]_IR[" + String(IRval) + "]_UT[" + String(distance) +"]_TM["+String(temps) +"]_MIC["+String(mic)+"]_!EndREPT";
+    String fromboard = "EnviBotREPT_GAS[" + String(gasValue) + "]_IR[" + String(irValue) + "]_UT[" + String(distance) +"]_TM["+String(tempValue) +"]_MIC["+String(micValue)+"]_!EndREPT";
     Serial.println(fromboard);
-    Serial.println(Gval);
+    Serial.println(gasValue);
     Serial.flush();
     Serial1.print(fromboard);
     Serial1.print('\r');
@@ -61,11 +63,11 @@ void sendSerial() {
 
 void serialEvent() {
     if (Serial1.available() > 0) { 
-        Serialval = Serial1.readStringUntil('\r');
-        if (Serialval.length() > 15) {
-            memcpy(MV, &Serialval[15], 1);
-            memcpy(TN, &Serialval[21], 1);
-            memcpy(HD, &Serialval[27], 1);
+        receivedSerial = Serial1.readStringUntil('\r');
+        if (receivedSerial.length() > 15) {
+            memcpy(MV, &receivedSerial[15], 1);
+            memcpy(TN, &receivedSerial[21], 1);
+            memcpy(HD, &receivedSerial[27], 1);
         }
         Serial1.flush();
     }
@@ -75,7 +77,7 @@ PT_THREAD(taskGas(struct pt* pt)) {
     static uint32_t ts;
     PT_BEGIN(pt);
     while (1) {
-        Gval = analogRead(G_sensor);
+        gasValue = analogRead(G_SENSOR);
         PT_DELAY(pt, 1000, ts);
     }
     PT_END(pt);
@@ -85,7 +87,7 @@ PT_THREAD(taskIR(struct pt* pt)) {
     static uint32_t ts;
     PT_BEGIN(pt);
     while (1) {
-        IRval = analogRead(IR_sensor);
+        irValue = analogRead(IR_SENSOR);
         PT_DELAY(pt, 1000, ts);
     }
     PT_END(pt);
@@ -95,12 +97,12 @@ PT_THREAD(taskUltra(struct pt* pt)) {
     static uint32_t ts;
     PT_BEGIN(pt);
     while (1) {
-        digitalWrite(trigPin, LOW);
+        digitalWrite(ULTRA_TRIG, LOW);
         delayMicroseconds(2);
-        digitalWrite(trigPin, HIGH);
+        digitalWrite(ULTRA_TRIG, HIGH);
         delayMicroseconds(10);
-        digitalWrite(trigPin, LOW);
-        duration = pulseIn(echoPin, HIGH);
+        digitalWrite(ULTRA_TRIG, LOW);
+        duration = pulseIn(ULTRA_ECHO, HIGH);
         distance = (duration / 2) / 29.1;     
         PT_DELAY(pt, 1000, ts);
     }
@@ -110,16 +112,26 @@ PT_THREAD(taskUltra(struct pt* pt)) {
 PT_THREAD(taskServo(struct pt* pt)) {
     static uint32_t ts;
     PT_BEGIN(pt);
+    
+    /////////////////////////////////////
+    // Head Ctrl Variables Description //
+    /////////////////////////////////////
+    // HD[0] <- Head Control Value     //
+    //   -> '0' == Center              //
+    //   -> '1' == Look Left           //
+    //   -> '2' == Look Right          //
+    /////////////////////////////////////
+    
     while (1) {
         switch (HD[0]) {
             case '1':
-                neck.write(170);
+                head.write(170);
                 break;
             case '0':
-                neck.write(110);
+                head.write(110);
                 break;
             case '2':
-                neck.write(55);
+                head.write(55);
                 break;
         }
         PT_DELAY(pt, 500, ts);
@@ -130,51 +142,66 @@ PT_THREAD(taskServo(struct pt* pt)) {
 PT_THREAD(taskMotor(struct pt* pt)) {
     static uint32_t ts;
     PT_BEGIN(pt);
+    
+    /////////////////////////////////////
+    // Movement Variables Description  //
+    /////////////////////////////////////
+    // MV[0] <- Movement Control Value //
+    //   -> '0' == Hold Postion (Stop) //
+    //   -> '1' == Move Forward        //
+    //   -> '2' == Move Backward       //
+    /////////////////////////////////////
+    // TN[0] <- Turn Control Value     //
+    //   -> '0' == No Turning          //
+    //   -> '1' == Turn Left           //
+    //   -> '2' == Turn Right          //
+    /////////////////////////////////////
+    
     while (1) {
         switch (MV[0]) {
             case '0':
                 // Stop.
-                digitalWrite(Motor1L, LOW);
-                digitalWrite(Motor1R, LOW);
-                digitalWrite(Motor2L, LOW);
-                digitalWrite(Motor2R, LOW);
+                digitalWrite(MOTOR1_RV, LOW);
+                digitalWrite(MOTOR1_FW, LOW);
+                digitalWrite(MOTOR2_RV, LOW);
+                digitalWrite(MOTOR2_FW, LOW);
                 break;
             case '1':
                 // Forward.
                 if (TN[0] == '1') {
-                    digitalWrite(Motor1L, LOW);
-                    digitalWrite(Motor1R, LOW);
-                    digitalWrite(Motor2L, LOW);
-                    digitalWrite(Motor2R, HIGH);
+                    digitalWrite(MOTOR1_RV, LOW);
+                    digitalWrite(MOTOR1_FW, LOW);
+                    digitalWrite(MOTOR2_RV, LOW);
+                    digitalWrite(MOTOR2_FW, HIGH);
                 } else if (TN[0] == '2') {
-                    digitalWrite(Motor1L, LOW);
-                    digitalWrite(Motor1R, HIGH);
-                    digitalWrite(Motor2L, LOW);
-                    digitalWrite(Motor2R, LOW);
+                    digitalWrite(MOTOR1_RV, LOW);
+                    digitalWrite(MOTOR1_FW, HIGH);
+                    digitalWrite(MOTOR2_RV, LOW);
+                    digitalWrite(MOTOR2_FW, LOW);
                 } else {
-                    digitalWrite(Motor1L, 0);
-                    digitalWrite(Motor1R, 1);
-                    digitalWrite(Motor2L, 0);
-                    digitalWrite(Motor2R, 1);
+                    digitalWrite(MOTOR1_RV, LOW);
+                    digitalWrite(MOTOR1_FW, HIGH);
+                    digitalWrite(MOTOR2_RV, LOW);
+                    digitalWrite(MOTOR2_FW, HIGH);
                 }
                 break;
             case '2':
                 // Backward.
                 if (TN[0] == '1') {
-                    digitalWrite(Motor1L, LOW);
-                    digitalWrite(Motor1R, LOW);
-                    digitalWrite(Motor2L, HIGH);
-                    digitalWrite(Motor2R, LOW);
+                    digitalWrite(MOTOR1_RV, LOW);
+                    digitalWrite(MOTOR1_FW, LOW);
+                    digitalWrite(MOTOR2_RV, HIGH);
+                    digitalWrite(MOTOR2_FW, LOW);
                 } else if (TN[0] == '2') {
-                    digitalWrite(Motor1L, HIGH);
-                    digitalWrite(Motor1R, LOW);
-                    digitalWrite(Motor2L, LOW);
-                    digitalWrite(Motor2R, LOW);
+                    digitalWrite(MOTOR1_RV, HIGH);
+                    digitalWrite(MOTOR1_FW, LOW);
+                    digitalWrite(MOTOR2_RV, LOW);
+                    digitalWrite(MOTOR2_FW, LOW);
                 } else {
-                    digitalWrite(Motor1L, 1);
-                    digitalWrite(Motor1R, 0);
-                    digitalWrite(Motor2L, 1);
-                    digitalWrite(Motor2R, 0);
+                    digitalWrite(MOTOR1_RV, HIGH);
+                    digitalWrite(MOTOR1_FW, LOW);
+                    digitalWrite(MOTOR2_RV, HIGH);
+                    digitalWrite(MOTOR2_FW, LOW);
                 }
                 break;
         }
@@ -182,19 +209,19 @@ PT_THREAD(taskMotor(struct pt* pt)) {
             case '1':
                 // Left.
                 if (MV[0] == '0') {
-                    digitalWrite(Motor1L, HIGH);
-                    digitalWrite(Motor1R, LOW);
-                    digitalWrite(Motor2L, LOW);
-                    digitalWrite(Motor2R, HIGH);
+                    digitalWrite(MOTOR1_RV, HIGH);
+                    digitalWrite(MOTOR1_FW, LOW);
+                    digitalWrite(MOTOR2_RV, LOW);
+                    digitalWrite(MOTOR2_FW, HIGH);
                 }
                 break;
             case '2':
                 // Right.
                 if (MV[0] == '0') {
-                    digitalWrite(Motor1L, LOW);
-                    digitalWrite(Motor1R, HIGH);
-                    digitalWrite(Motor2L, HIGH);
-                    digitalWrite(Motor2R, LOW);
+                    digitalWrite(MOTOR1_RV, LOW);
+                    digitalWrite(MOTOR1_FW, HIGH);
+                    digitalWrite(MOTOR2_RV, HIGH);
+                    digitalWrite(MOTOR2_FW, LOW);
                 }
                 break;
         }
@@ -207,7 +234,7 @@ PT_THREAD(taskTemp(struct pt* pt)) {
     static uint32_t ts;
     PT_BEGIN(pt);
     while (1) {
-        temps = ((25 * analogRead(TEMP) - 2050) / 100) - 10;
+        tempValue = ((25 * analogRead(TEMP_SENSOR) - 2050) / 100) - 10;
         PT_DELAY(pt, 1000, ts);
     }
     PT_END(pt);
@@ -217,8 +244,8 @@ PT_THREAD(taskMic(struct pt* pt)) {
     static uint32_t ts;
     PT_BEGIN(pt);
     while (1) {
-        mic = analogRead(MIC);
-        Serial.println(mic);
+        micValue = analogRead(SOUND_SENSOR);
+        Serial.println(micValue);
         PT_DELAY(pt, 1000, ts);
     }
     PT_END(pt);
@@ -228,31 +255,31 @@ void setup() {
     // Begin serial connections.
     // Serial1 -> NodeMCU.
     Serial1.begin(115200);
-    // Serial -> USB.
+    // Serial -> Serial over USB.
     Serial.begin(9600);
     
     // Gas Sensor Pin Initialization.
-    pinMode(G_sensor, INPUT);
+    pinMode(G_SENSOR, INPUT);
     // Servo Motor Pin Initialization.
-    neck.attach(10);
-    neck.write(10);
+    head.attach(SERVO);
+    head.write(SERVO);
     // Motor Pins Initialization.
-    pinMode(Motor1L, OUTPUT);
-    pinMode(Motor1R, OUTPUT);
-    pinMode(Motor2L, OUTPUT);
-    pinMode(Motor2R, OUTPUT);
+    pinMode(MOTOR1_RV, OUTPUT);
+    pinMode(MOTOR1_FW, OUTPUT);
+    pinMode(MOTOR2_RV, OUTPUT);
+    pinMode(MOTOR2_FW, OUTPUT);
     // Ultrasonic Pins Initialzation.
-    pinMode(trigPin, OUTPUT);
-    pinMode(echoPin, INPUT);
-    // Buzzer Pin Initialization.
-    pinMode(Buzzer, OUTPUT);
+    pinMode(ULTRA_TRIG, OUTPUT);
+    pinMode(ULTRA_ECHO, INPUT);
+    // BUZZER Pin Initialization.
+    pinMode(BUZZER, OUTPUT);
     // LEDs Pins Initialization.
     pinMode(LED_B, OUTPUT);
     pinMode(LED_G, OUTPUT);
     // Temperature Sensor Pin Initialization.
-    pinMode(TEMP, INPUT);
+    pinMode(TEMP_SENSOR, INPUT);
     // Sound Sensor Pin Initialization.
-    pinMode(MIC, INPUT);
+    pinMode(SOUND_SENSOR, INPUT);
 
     // Initialize ProtoThreads.
     PT_INIT(&pt_taskSendSerial);
@@ -265,22 +292,24 @@ void setup() {
 }
 
 void loop() {
-    serialEvent();
-    taskSendSerial(&pt_taskSendSerial);
-    taskGas(&pt_taskGas);
-    taskIR(&pt_taskIR);
-    taskUltra(&pt_taskUltra);
-    taskServo(&pt_taskServo);
-    taskMotor(&pt_taskMotor);
-    taskTemp(&pt_taskTemp);
-    taskMic(&pt_taskMic);
-    if (Gval > 500 || IRval < 100) {
-        digitalWrite(Buzzer,HIGH);
-        digitalWrite(LED_B,1);
-        digitalWrite(LED_G,0);
+    serialEvent();                          // Receive control data from NodeMCU.
+    taskSendSerial(&pt_taskSendSerial);     // Send environment data to NodeMCU.
+    taskGas(&pt_taskGas);                   // Read gas sensor's value.
+    taskIR(&pt_taskIR);                     // Read infrared light sensor's value.
+    taskUltra(&pt_taskUltra);               // Read ultrasonic sensor's value.
+    taskTemp(&pt_taskTemp);                 // Read temperature sensor's value.
+    taskMic(&pt_taskMic);                   // Read sound sensor's value.
+    taskServo(&pt_taskServo);               // Control head by using servo motor.
+    taskMotor(&pt_taskMotor);               // Control movement using motors.
+    
+    // Visual and audible alerts for any abnormal environment value.
+    if (gasValue > 500 || irValue < 100) {
+        digitalWrite(BUZZER, HIGH);
+        digitalWrite(LED_B, HIGH);
+        digitalWrite(LED_G, LOW);
     } else {
-        digitalWrite(Buzzer,LOW);
-        digitalWrite(LED_B,0);
-        digitalWrite(LED_G,1);
+        digitalWrite(BUZZER, LOW);
+        digitalWrite(LED_B, LOW);
+        digitalWrite(LED_G, HIGH);
     }
 }
