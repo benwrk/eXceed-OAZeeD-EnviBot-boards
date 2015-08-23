@@ -7,8 +7,8 @@ const int httpPort = 80;
 const String group = "OAZeeD";
 
 WiFiClient client;
-String serialRecieveData = "";
-String httpRecieveData = "";
+String serialReceiveData = "";
+String httpReceiveData = "";
 
 bool hasSerialDataCome() {
 	return Serial.available() > 0;
@@ -65,12 +65,12 @@ String getEachLineDataHttp() {
 	return line;
 }
 
-void setHttpRecieveData() {
+void setHttpReceiveData() {
 	int countLine = 1;
 	while (client.available()) {
 		String line = getEachLineDataHttp();
 		if (isNotHeaderData(countLine)) {
-			httpRecieveData = line;
+			httpReceiveData = line;
 		}
 		countLine++;
 	}
@@ -79,7 +79,7 @@ void setHttpRecieveData() {
 void readHttpRequest() {
 	String url = "/iot/" + group + "/toBoard";
 	httpRequest(url);
-	setHttpRecieveData();
+	setHttpReceiveData();
 }
 
 void writeHttpRequest(String value) {
@@ -87,15 +87,15 @@ void writeHttpRequest(String value) {
 	httpRequest(url);
 }
 
-void setSerialRecieveData() {
-	serialRecieveData = Serial.readStringUntil('\r');
-	serialRecieveData.replace("\r", "");
-	serialRecieveData.replace("\n", "");
+void setSerialReceiveData() {
+	serialReceiveData = Serial.readStringUntil('\r');
+	serialReceiveData.replace("\r", "");
+	serialReceiveData.replace("\n", "");
 }
 
 void serialEvent() {
 	if (hasSerialDataCome()) {
-		setSerialRecieveData();
+		setSerialReceiveData();
 	}
 }
 
@@ -104,17 +104,17 @@ void sendSerial(String value) {
 	Serial.print('\r');
 }
 
-void recieveData() {
+void receiveData() {
 	serialEvent();
 	readHttpRequest();
 }
 
 void sendData() {
-	sendSerial(httpRecieveData);
-	writeHttpRequest(serialRecieveData);
+	sendSerial(httpReceiveData);
+	writeHttpRequest(serialReceiveData);
 }
 
 void loop() {
-	recieveData();
+	receiveData();
 	sendData();
 }
